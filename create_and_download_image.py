@@ -1,3 +1,4 @@
+## API REF: https://docs.bfl.ml/
 import os
 import requests
 import time
@@ -13,8 +14,8 @@ ALLOWED_MODELS = ["flux-pro-1.1", "flux-pro", "flux-dev"]
 # ==========================
 # You can modify these default values as needed.
 DEFAULT_PROMPT = "A cat on its back legs running like a human is holding a big silver fish with its arms. The cat is running away from the shop owner and has a panicked look on his face. The scene is situated in a crowded market."
-DEFAULT_IMG_WIDTH = 800 # will round to nearest 32
-DEFAULT_IMG_HEIGHT = 600 # will round to nearest 32
+DEFAULT_IMG_WIDTH = 1024
+DEFAULT_IMG_HEIGHT = 768
 DEFAULT_OUTPUT_FILENAME = "sample_out.jpg"
 DEFAULT_MODEL = "flux-pro-1.1"
 
@@ -44,13 +45,13 @@ def parse_args():
         '--width',
         type=int,
         default=DEFAULT_IMG_WIDTH,
-        help='Width of the image in pixels. Will be rounded to the nearest multiple of 32.'
+        help='Width of the image in pixels. Must be between 256 and 1440 and divisible by 32.'
     )
     parser.add_argument(
         '--height',
         type=int,
         default=DEFAULT_IMG_HEIGHT,
-        help='Height of the image in pixels. Will be rounded to the nearest multiple of 32.'
+        help='Height of the image in pixels. Must be between 256 and 1440 and divisible by 32.'
     )
     parser.add_argument(
         '--output',
@@ -71,16 +72,43 @@ def parse_args():
         choices=ALLOWED_MODELS,
         help='Model to use for image generation.'
     )
+    
+    # Optional Arguments
+    parser.add_argument(
+        '--prompt-upsampling',
+        action='store_true',
+        default=False,
+        help='Whether to perform upsampling on the prompt. If active, automatically modifies the prompt for more creative generation.'
+    ) # note: gave a 500 error when i tried this
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=None,
+        help='Optional seed for reproducibility.'
+    )
+    parser.add_argument(
+        '--safety-tolerance',
+        type=int,
+        choices=range(0, 7),
+        default=None,
+        metavar='[0-6]',
+        help='Tolerance level for input and output moderation. Between 0 and 6, 0 being most strict, 6 being least strict.'
+    )
+    
     args = parser.parse_args()
     
-    # Round width and height to nearest multiple of 32
+    # Validate and adjust width and height
     original_width, original_height = args.width, args.height
+    args.width = max(256, min(1440, args.width))
+    args.height = max(256, min(1440, args.height))
+    
+    # Round width and height to nearest multiple of 32
     args.width = round_to_nearest_32(args.width)
     args.height = round_to_nearest_32(args.height)
     
-    # Print warning if dimensions were rounded
+    # Print warning if dimensions were adjusted or rounded
     if args.width != original_width or args.height != original_height:
-        print(f"Warning: Dimensions have been rounded to the nearest multiple of 32.")
+        print(f"Warning: Dimensions have been adjusted to fit within bounds and rounded to the nearest multiple of 32.")
         print(f"Original dimensions: {original_width}x{original_height}")
         print(f"Adjusted dimensions: {args.width}x{args.height}")
     
@@ -99,7 +127,8 @@ def get_api_key(provided_key):
     return api_key
 
 
-def make_request(api_key, prompt, width, height, model):
+def make_request(api_key, prompt, width, height, model, 
+                 prompt_upsampling=False, seed=None, safety_tolerance=None):
     url = f'https://api.bfl.ml/{API_VERSION}/{model}'
     headers = {
         'accept': 'application/json',
@@ -110,6 +139,9 @@ def make_request(api_key, prompt, width, height, model):
         'prompt': prompt,
         'width': width,
         'height': height,
+        'prompt_upsampling': prompt_upsampling,
+        'seed': seed,
+        'safety_tolerance': safety_tolerance
     }
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=10)
@@ -184,6 +216,7 @@ def save_image(image_url, output_filename):
         print(f"Error saving image to file: {e}")
         sys.exit(1)
 
+
 # ==========================
 # Main Execution Flow
 # ==========================
@@ -203,7 +236,16 @@ def main():
 
     print(f"Using model: {args.model}")
     print("Initiating image generation request...")
-    request = make_request(api_key, args.prompt, args.width, args.height, args.model)
+    request = make_request(
+        api_key,
+        args.prompt,
+        args.width,
+        args.height,
+        args.model,
+        prompt_upsampling=args.prompt_upsampling,
+        seed=args.seed,
+        safety_tolerance=args.safety_tolerance
+    )
     print_relevant_request_info(request)
 
     request_id = request.get("id")
@@ -215,6 +257,7 @@ def main():
     print(f"Image is ready. Downloading from: {image_url}")
 
     save_image(image_url, args.output)
+
 
 if __name__ == "__main__":
     main()
