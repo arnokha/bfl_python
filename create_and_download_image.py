@@ -222,12 +222,7 @@ def save_image(image_url, output_filename):
 # ==========================
 def main():
     args = parse_args()
-
-    # Validate width and height
-    if args.width < 32 or args.height < 32:
-        print("Error: Width and Height must be at least 32 pixels.")
-        sys.exit(1)
-
+    
     try:
         api_key = get_api_key(args.api_key)
     except ValueError as ve:
