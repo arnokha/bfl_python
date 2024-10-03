@@ -1,54 +1,220 @@
 import os
 import requests
 import time
+import argparse
+import sys
+import json
 
-BFL_API_KEY = "" or os.environ.get("BFL_API_KEY") 
-if not BFL_API_KEY:
-    raise ValueError("Must provide black forest labs API key via export (or insert value directly into script for BFL_API_KEY if you are not commiting or sharing this code)")
+API_VERSION = "v1"
+ALLOWED_MODELS = ["flux-pro-1.1", "flux-pro", "flux-dev"]
 
-PROMPT = ""
-IMG_WIDTH = 0
-IMG_HEIGHT = 0
+# ==========================
+# Configuration Defaults
+# ==========================
+# You can modify these default values as needed.
+DEFAULT_PROMPT = "A cat on its back legs running like a human is holding a big silver fish with its arms. The cat is running away from the shop owner and has a panicked look on his face. The scene is situated in a crowded market."
+DEFAULT_IMG_WIDTH = 800 # will round to nearest 32
+DEFAULT_IMG_HEIGHT = 600 # will round to nearest 32
+DEFAULT_OUTPUT_FILENAME = "sample_out.jpg"
+DEFAULT_MODEL = "flux-pro-1.1"
 
-## TODO get prompt, width, and height via command line args. 
-## it's ok for the user to modify script vals instead, but it must be provided somewhere
-## if no valid value for any of these, throw an error and print usage string
-## END TODO
+# Optionally, you can set the API key here.
+# WARNING: Embedding API keys directly in scripts is not recommended for shared or public code.
+# It's safer to set them as environment variables.
+DEFAULT_BFL_API_KEY = ""  # e.g., "3xjdsiuvere-ddsf-..."
+
+# ==========================
+# Helper Functions
+# ==========================
+def round_to_nearest_32(n):
+    return round(n / 32) * 32
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Generate an image using Black Forest Labs API.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
+    parser.add_argument(
+        '--prompt',
+        type=str,
+        default=DEFAULT_PROMPT,
+        help='Prompt for image generation.'
+    )
+    parser.add_argument(
+        '--width',
+        type=int,
+        default=DEFAULT_IMG_WIDTH,
+        help='Width of the image in pixels. Will be rounded to the nearest multiple of 32.'
+    )
+    parser.add_argument(
+        '--height',
+        type=int,
+        default=DEFAULT_IMG_HEIGHT,
+        help='Height of the image in pixels. Will be rounded to the nearest multiple of 32.'
+    )
+    parser.add_argument(
+        '--output',
+        type=str,
+        default=DEFAULT_OUTPUT_FILENAME,
+        help='Filename to save the resulting image.'
+    )
+    parser.add_argument(
+        '--api-key',
+        type=str,
+        default=DEFAULT_BFL_API_KEY,
+        help='Black Forest Labs API key. If not provided, the script will look for the BFL_API_KEY environment variable.'
+    )
+    parser.add_argument(
+        '--model',
+        type=str,
+        default=DEFAULT_MODEL,
+        choices=ALLOWED_MODELS,
+        help='Model to use for image generation.'
+    )
+    args = parser.parse_args()
+    
+    # Round width and height to nearest multiple of 32
+    original_width, original_height = args.width, args.height
+    args.width = round_to_nearest_32(args.width)
+    args.height = round_to_nearest_32(args.height)
+    
+    # Print warning if dimensions were rounded
+    if args.width != original_width or args.height != original_height:
+        print(f"Warning: Dimensions have been rounded to the nearest multiple of 32.")
+        print(f"Original dimensions: {original_width}x{original_height}")
+        print(f"Adjusted dimensions: {args.width}x{args.height}")
+    
+    return args
 
 
-request = requests.post(
-    'https://api.bfl.ml/v1/flux-pro-1.1',
-    headers={
+def get_api_key(provided_key):
+    """
+    Retrieves the API key from the provided argument or environment variable.
+    """
+    api_key = provided_key or os.environ.get("BFL_API_KEY")
+    if not api_key:
+        raise ValueError(
+            "API key not found. Please provide it via the '--api-key' argument or set the BFL_API_KEY environment variable."
+        )
+    return api_key
+
+
+def make_request(api_key, prompt, width, height, model):
+    url = f'https://api.bfl.ml/{API_VERSION}/{model}'
+    headers = {
         'accept': 'application/json',
-        'x-key': BFL_API_KEY,
+        'x-key': api_key,
         'Content-Type': 'application/json',
-    },
-    json={
-        'prompt': PROMPT,
-        'width': IMG_WIDTH,
-        'height': IMG_HEIGHT,
-    },
-).json()
+    }
+    payload = {
+        'prompt': prompt,
+        'width': width,
+        'height': height,
+    }
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=10)
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        print(f"Error during API request: {e}")
+        if hasattr(e, 'response') and e.response is not None:
+            print("Response Content:", e.response.text)
+        sys.exit(1)
 
-print(request) ## TODO print only relevant parts and make sure nicely formatted
 
-request_id = request["id"]
+def print_relevant_request_info(request):
+    """
+    Extracts and prints relevant information from the API response.
+    """
+    relevant_keys = ['id', 'status']
+    filtered = {key: request.get(key) for key in relevant_keys if key in request}
+    print("Request Details:")
+    print(json.dumps(filtered, indent=4))
 
-## TODO - this is copied from the API docs, but it's not clear how to save the resulting image to a file. Probably need to run this once to test.
-while True:
-    time.sleep(0.5)
-    result = requests.get(
-        'https://api.bfl.ml/v1/get_result',
-        headers={
-            'accept': 'application/json',
-            'x-key': BFL_API_KEY,
-        },
-        params={
-            'id': request_id,
-        },
-    ).json()
-    if result["status"] == "Ready":
-        print(f"Result: {result['result']['sample']}")
-        break
-    else:
-        print(f"Status: {result['status']}")
+
+def poll_result(api_key, request_id):
+    """
+    Polls the API until the image generation is complete.
+    Returns the image URL when ready.
+    """
+    url = 'https://api.bfl.ml/v1/get_result'
+    headers = {
+        'accept': 'application/json',
+        'x-key': api_key,
+    }
+    params = {'id': request_id}
+
+    print("Polling for result...")
+    while True:
+        try:
+            response = requests.get(url, headers=headers, params=params, timeout=10)
+            response.raise_for_status()
+            result = response.json()
+        except requests.RequestException as e:
+            print(f"Error fetching result: {e}")
+            sys.exit(1)
+
+        status = result.get("status")
+        if status == "Ready":
+            sample = result.get('result', {}).get('sample')
+            if sample:
+                return sample
+            else:
+                print("Result is ready but no sample found.")
+                sys.exit(1)
+        else:
+            print(f"Status: {status}")
+            time.sleep(0.5)  # Wait before the next poll
+
+
+def save_image(image_url, output_filename):
+    """
+    Downloads the image from the provided URL and saves it to a file.
+    """
+    try:
+        response = requests.get(image_url, timeout=20)
+        response.raise_for_status()
+        with open(output_filename, 'wb') as f:
+            f.write(response.content)
+        print(f"Image successfully saved to '{output_filename}'.")
+    except requests.RequestException as e:
+        print(f"Error downloading image: {e}")
+        sys.exit(1)
+    except IOError as e:
+        print(f"Error saving image to file: {e}")
+        sys.exit(1)
+
+# ==========================
+# Main Execution Flow
+# ==========================
+def main():
+    args = parse_args()
+
+    # Validate width and height
+    if args.width < 32 or args.height < 32:
+        print("Error: Width and Height must be at least 32 pixels.")
+        sys.exit(1)
+
+    try:
+        api_key = get_api_key(args.api_key)
+    except ValueError as ve:
+        print(f"Error: {ve}")
+        sys.exit(1)
+
+    print(f"Using model: {args.model}")
+    print("Initiating image generation request...")
+    request = make_request(api_key, args.prompt, args.width, args.height, args.model)
+    print_relevant_request_info(request)
+
+    request_id = request.get("id")
+    if not request_id:
+        print("Error: No request ID found in the response.")
+        sys.exit(1)
+
+    image_url = poll_result(api_key, request_id)
+    print(f"Image is ready. Downloading from: {image_url}")
+
+    save_image(image_url, args.output)
+
+if __name__ == "__main__":
+    main()
