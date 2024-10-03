@@ -21,7 +21,7 @@ A quickstart guide to generate images using Black Forest Labs' Flux image genera
 
 2. **Obtain an API Key**
 
-   - Sign up or log in to [Black Forest Labs](https://www.bfl.ml/) to obtain your API key.
+   - Sign up or log in to [Black Forest Labs](https://blackforestlabs.ai/) to obtain your API key.
    - **Security Tip:** It's recommended to set your API key as an environment variable to avoid exposing it in scripts.
 
      ```bash
