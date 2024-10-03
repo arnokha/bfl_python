@@ -36,6 +36,8 @@ Run the script using Python with the desired options:
 python create_and_download_image.py [OPTIONS]
 ```
 
+**Note**: you can also just leave these options blank and edit the default values in the script if you'd prefer.
+
 ### Available Options
 
 - `--prompt`  
