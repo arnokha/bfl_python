@@ -139,10 +139,16 @@ def make_request(api_key, prompt, width, height, model,
         'prompt': prompt,
         'width': width,
         'height': height,
-        'prompt_upsampling': prompt_upsampling,
-        'seed': seed,
-        'safety_tolerance': safety_tolerance
     }
+
+    # Only include optional parameters if they are set
+    if prompt_upsampling:
+        payload['prompt_upsampling'] = prompt_upsampling
+    if seed is not None:
+        payload['seed'] = seed
+    if safety_tolerance is not None:
+        payload['safety_tolerance'] = safety_tolerance
+
     try:
         response = requests.post(url, headers=headers, json=payload, timeout=10)
         response.raise_for_status()
