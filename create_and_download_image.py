@@ -5,6 +5,7 @@ import time
 import argparse
 import sys
 import json
+from datetime import datetime
 
 API_VERSION = "v1"
 ALLOWED_MODELS = ["flux-pro-1.1", "flux-pro", "flux-dev"]
@@ -14,8 +15,8 @@ ALLOWED_MODELS = ["flux-pro-1.1", "flux-pro", "flux-dev"]
 # ==========================
 # You can modify these default values as needed.
 DEFAULT_PROMPT = "A cat on its back legs running like a human is holding a big silver fish with its arms. The cat is running away from the shop owner and has a panicked look on his face. The scene is situated in a crowded market."
-DEFAULT_IMG_WIDTH = 1024
-DEFAULT_IMG_HEIGHT = 768
+DEFAULT_IMG_WIDTH = 1024 
+DEFAULT_IMG_HEIGHT = 1024
 DEFAULT_OUTPUT_FILENAME = "sample_out.jpg"
 DEFAULT_MODEL = "flux-pro-1.1"
 
@@ -208,10 +209,24 @@ def poll_result(api_key, request_id):
 def save_image(image_url, output_filename):
     """
     Downloads the image from the provided URL and saves it to a file.
+    If the file already exists, it adds a timestamp to make the filename unique.
     """
     try:
         response = requests.get(image_url, timeout=20)
         response.raise_for_status()
+
+        # Check if file already exists
+        if os.path.exists(output_filename):
+            # Get file name and extension
+            file_name, file_extension = os.path.splitext(output_filename)
+            
+            # Add timestamp to make the filename unique
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            new_filename = f"{file_name}_{timestamp}{file_extension}"
+            
+            print(f"File '{output_filename}' already exists. Saving as '{new_filename}' instead.")
+            output_filename = new_filename
+
         with open(output_filename, 'wb') as f:
             f.write(response.content)
         print(f"Image successfully saved to '{output_filename}'.")
@@ -221,7 +236,6 @@ def save_image(image_url, output_filename):
     except IOError as e:
         print(f"Error saving image to file: {e}")
         sys.exit(1)
-
 
 # ==========================
 # Main Execution Flow
